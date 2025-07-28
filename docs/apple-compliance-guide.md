@@ -45,12 +45,12 @@ This document outlines Apple's requirements for In-App Purchases (IAP) and provi
 graph TB
     subgraph "Apple Requirements Zone"
         A[iOS App] -->|StoreKit| B[Apple App Store]
-        A -->|Receipt| C[Server Validation]
-        C -->|Verify| B
+        B -->|Server Notification| C[Apple Notification Handler]
+        C -->|JWS Verify| B
     end
     
     subgraph "Business Logic Zone"
-        C -->|Valid Receipt| D[CRM Integration]
+        C -->|Verified Transaction| D[CRM Integration]
         D --> E[Content Unlocking]
         D --> F[Customer Management]
         D --> G[Analytics & Reporting]

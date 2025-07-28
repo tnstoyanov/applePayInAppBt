@@ -93,7 +93,7 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> PendingPurchase
     PendingPurchase --> Processing: Payment Initiated
-    Processing --> Active: Receipt Validated
+    Processing --> Active: Apple Notification Received
     Processing --> Failed: Payment Failed
     Active --> Expired: Subscription Ends
     Active --> Cancelled: User Cancels
@@ -148,9 +148,9 @@ graph LR
 
 ```mermaid
 flowchart TD
-    A[Transaction/Validation Error] --> B{Error Type}
+    A[Transaction/Notification Error] --> B{Error Type}
     B -->|Network Error| C[Exponential Backoff]
-    B -->|Invalid Receipt| D[Log & Alert]
+    B -->|Invalid JWS Signature| D[Log & Alert]
     B -->|Server Error| E[Immediate Retry]
     B -->|User Cancelled| F[No Action]
     
@@ -178,21 +178,21 @@ flowchart TD
 
 ```mermaid
 sequenceDiagram
-    participant RV as Receipt Validator
+    participant NH as Notification Handler
     participant Auth as Auth Service
     participant CRM as CRM API
     participant User as User Service
     participant Content as Content Service
     participant Analytics as Analytics
     
-    RV->>Auth: Get API Token
-    Auth->>RV: JWT Token
+    NH->>Auth: Get API Token
+    Auth->>NH: JWT Token
     
-    RV->>User: Link Apple ID to User
+    NH->>User: Link Apple ID to User
     User->>CRM: Update User Profile
     
-    RV->>CRM: Create Purchase Record
-    Note over RV,CRM: Purchase details + Receipt info
+    NH->>CRM: Create Purchase Record
+    Note over NH,CRM: Purchase details + JWS payload
     
     CRM->>Content: Update Entitlements
     Content->>User: Grant Access
@@ -214,12 +214,12 @@ flowchart TD
     B -->|No| C[Load Cached Data]
     B -->|Yes| D[Sync with Server]
     
-    C --> E[Check Local Receipts]
-    E --> F{Pending Transactions?}
+    C --> E[Check Local Entitlements]
+    E --> F{Pending Notifications?}
     F -->|Yes| G[Queue for Sync]
     F -->|No| H[Continue Offline]
     
-    D --> I[Validate Pending Receipts]
+    D --> I[Fetch Latest Entitlements]
     I --> J[Update Local Cache]
     J --> K[Sync Complete]
     
@@ -244,7 +244,7 @@ flowchart TD
 graph TB
     subgraph "Device Security"
         A[Certificate Pinning] --> B[Request Signing]
-        B --> C[Receipt Encryption]
+        B --> C[JWS Verification]
     end
     
     subgraph "Transport Security"
@@ -253,7 +253,7 @@ graph TB
     end
     
     subgraph "Server Security"
-        G[Receipt Validation] --> H[Replay Protection]
+        G[Apple Notification Verification] --> H[Replay Protection]
         H --> I[Audit Logging]
     end
     
@@ -355,10 +355,10 @@ sequenceDiagram
 
 ### Critical Success Factors
 
-1. **Proper Receipt Validation**
-   - Always validate server-side
-   - Handle sandbox vs production receipts
-   - Implement replay attack prevention
+1. **Proper Apple Notification Processing**
+   - Always process server-side notifications
+   - Handle sandbox vs production environments
+   - Implement replay attack prevention with JWS verification
 
 2. **Robust Error Handling**
    - Network failure recovery
@@ -371,6 +371,6 @@ sequenceDiagram
    - Audit trail maintenance
 
 4. **Performance Optimization**
-   - Receipt validation caching
+   - Real-time notification processing
    - Content pre-loading
    - Efficient sync mechanisms

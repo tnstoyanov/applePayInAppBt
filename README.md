@@ -21,7 +21,7 @@ Our solution provides a compliant architecture that:
 
 1. Uses Apple IAP for all premium content purchases
 2. Receives real-time notifications via Apple's Server API v2
-3. Unlocks content through CRM APIs after successful validation
+3. Unlocks content through CRM APIs after successful JWS verification
 4. Maintains audit trails and analytics
 
 ## Key Components

@@ -27,7 +27,7 @@ This document outlines the complete architecture for implementing Apple In-App P
 graph TB
     subgraph "iOS App"
         A[StoreKit UI] --> B[Purchase Manager]
-        B --> C[Receipt Validator]
+        B --> C[Notification Listener]
         C --> D[Content Manager]
         D --> E[Local Content Store]
     end
@@ -46,7 +46,7 @@ graph TB
         M[Monitoring Service]
     end
     
-    C --> F
+    B --> F
     F --> L
     F --> M
     I --> E
@@ -65,9 +65,9 @@ graph TB
 
 - **Purpose**: Handle all purchase transactions through Apple's framework
 - **Key APIs**:
-  - `SKProductsRequest` for product information
+  - `SKProductsRequest` for product information  
   - `SKPaymentQueue` for purchase processing
-  - `SKReceiptRefreshRequest` for receipt updates
+  - Transaction observation and completion
 
 #### Purchase Manager
 
@@ -128,41 +128,41 @@ sequenceDiagram
     participant U as User
     participant A as iOS App
     participant AS as Apple Store
-    participant RV as Receipt Validator
+    participant NH as Notification Handler
     participant CRM as CRM System
     participant CD as Content Delivery
     
     U->>A: Initiate Purchase
     A->>AS: Process Payment
-    AS->>A: Return Receipt
-    A->>RV: Validate Receipt
-    RV->>AS: Verify with Apple
-    AS->>RV: Receipt Valid
-    RV->>CRM: Update User Entitlements
+    AS->>A: Transaction Complete
+    AS->>NH: Server Notification v2
+    NH->>NH: Verify JWS Signature
+    NH->>CRM: Update User Entitlements
     CRM->>CD: Authorize Content Access
-    CD->>A: Deliver Content URLs
+    CD->>A: Real-time Push Notification
     A->>U: Unlock Premium Content
     
-    Note over A,CD: All steps must complete for content access
+    Note over A,CD: Content unlocks within seconds via real-time notifications
 ```
 
 ### Subscription Management Flow
 
 ```mermaid
 sequenceDiagram
-    participant A as iOS App
-    participant RV as Receipt Validator
+    participant AS as Apple Server
+    participant NH as Notification Handler
     participant CRM as CRM System
-    participant U as User Account
+    participant A as iOS App
     
-    loop Daily Receipt Check
-        A->>RV: Send Latest Receipt
-        RV->>CRM: Update Subscription Status
+    loop Real-time Subscription Events
+        AS->>NH: Server Notification (RENEWAL/CANCEL/REFUND)
+        NH->>NH: Verify JWS Signature
+        NH->>CRM: Update Subscription Status
         alt Subscription Active
-            CRM->>U: Maintain Access
-        else Subscription Expired
-            CRM->>U: Revoke Access
-            CRM->>A: Sync Access Status
+            CRM->>A: Push Content Access Update
+        else Subscription Expired/Cancelled
+            CRM->>A: Push Access Revocation
+            A->>A: Remove Cached Content
         end
     end
 ```
