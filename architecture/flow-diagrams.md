@@ -23,7 +23,7 @@ flowchart TD
         K[Your webhook receives notification]
         L[Fetch transaction via API v2]
         M[Verify JWS signature]
-        N[Update CRM & unlock content]
+        N[Update CRM & grant content access]
     end
     
     I --> J
@@ -36,7 +36,7 @@ flowchart TD
         O[Push Notification]
         P[WebSocket/SSE Update]
         Q[App polls for updates]
-        R[Content unlocked in app]
+        R[Content accessible in app]
     end
     
     N --> O
@@ -66,51 +66,28 @@ sequenceDiagram
     
     Note over App,Apple: Purchase completed in StoreKit
     Apple->>Backend: Server Notification v2 (Webhook)
-    Note over Apple,Backend: PURCHASE, RENEWAL, etc.
+    Note over Apple,Backend: PURCHASE, CANCEL, REFUND, etc.
     
     Backend->>Apple: GET /transactions/{transactionId}
     Apple->>Backend: Transaction details + JWS
     Backend->>Backend: Verify JWS signature
     
-    Backend->>CRM: Update entitlements
+    Backend->>CRM: Update purchases
     CRM->>Backend: Confirmation
     
     par Real-time notification
         Backend->>Push: Send push notification
-        Push->>App: "Content unlocked!"
+        Push->>App: "Content available!"
     and WebSocket update
         Backend->>WS: Send content update
         WS->>App: Live content refresh
     and Polling fallback
-        App->>Backend: GET /user/entitlements
-        Backend->>App: Updated entitlements
+        App->>Backend: GET /user/purchases
+        Backend->>App: Updated purchases
     end
 ```
 
-## 3. Subscription Management Flow
-
-```mermaid
-stateDiagram-v2
-    [*] --> PendingPurchase
-    PendingPurchase --> Processing: Payment Initiated
-    Processing --> Active: Apple Notification Received
-    Processing --> Failed: Payment Failed
-    Active --> Expired: Subscription Ends
-    Active --> Cancelled: User Cancels
-    Active --> PendingRenewal: Near Expiry
-    PendingRenewal --> Active: Auto-Renewal Success
-    PendingRenewal --> Expired: Auto-Renewal Failed
-    Expired --> Active: Manual Renewal
-    Cancelled --> Active: Resubscribe
-    Failed --> PendingPurchase: Retry Purchase
-    
-    Active: Content Accessible
-    Expired: Content Locked
-    Cancelled: Grace Period
-    Failed: Show Error
-```
-
-## 4. Content Delivery Architecture
+## 3. Content Delivery Architecture
 
 ```mermaid
 graph LR
@@ -126,7 +103,7 @@ graph LR
     subgraph "Backend Services"
         F[Content API] --> G[Content Database]
         F --> H[Access Control]
-        H --> I[User Entitlements]
+        H --> I[User Purchases]
     end
     
     subgraph "Storage"
@@ -144,7 +121,7 @@ graph LR
     style D fill:#e8f5e8
 ```
 
-## 5. Error Handling and Retry Logic
+## 4. Error Handling and Retry Logic
 
 ```mermaid
 flowchart TD
@@ -174,7 +151,7 @@ flowchart TD
     style M fill:#fff3e0
 ```
 
-## 6. CRM Integration Pattern
+## 5. CRM Integration Pattern
 
 ```mermaid
 sequenceDiagram
@@ -194,7 +171,7 @@ sequenceDiagram
     NH->>CRM: Create Purchase Record
     Note over NH,CRM: Purchase details + JWS payload
     
-    CRM->>Content: Update Entitlements
+    CRM->>Content: Update Access Rights
     Content->>User: Grant Access
     
     par Analytics Tracking
@@ -206,7 +183,7 @@ sequenceDiagram
     CRM->>RV: Success Response
 ```
 
-## 7. Offline Handling Strategy
+## 6. Offline Handling Strategy
 
 ```mermaid
 flowchart TD
@@ -214,12 +191,12 @@ flowchart TD
     B -->|No| C[Load Cached Data]
     B -->|Yes| D[Sync with Server]
     
-    C --> E[Check Local Entitlements]
+    C --> E[Check Local Purchases]
     E --> F{Pending Notifications?}
     F -->|Yes| G[Queue for Sync]
     F -->|No| H[Continue Offline]
     
-    D --> I[Fetch Latest Entitlements]
+    D --> I[Fetch Latest Purchases]
     I --> J[Update Local Cache]
     J --> K[Sync Complete]
     
@@ -238,7 +215,7 @@ flowchart TD
     style K fill:#e8f5e8
 ```
 
-## 8. Security Implementation Flow
+## 7. Security Implementation Flow
 
 ```mermaid
 graph TB
@@ -271,7 +248,7 @@ graph TB
     style J fill:#ffebee
 ```
 
-## 9. Real-time Content Unlock Strategies
+## 8. Real-time Content Access Strategies
 
 ```mermaid
 flowchart TD
@@ -287,13 +264,11 @@ flowchart TD
     F -->|Option 3| I[Polling Strategy]
     
     G --> J[Silent Push + Content ID]
-    J --> K[App fetches new entitlements]
+    J --> K[App fetches new purchases]
     
     H --> L[Real-time WebSocket message]
-    L --> M[Instant content unlock]
-    
-    I --> N[App polls every 5-10 seconds]
-    N --> O[Check entitlements API]
+        L --> M[Instant content access]    I --> N[App polls every 5-10 seconds]
+    N --> O[Check purchases API]
     
     K --> P[Content Available]
     M --> P
@@ -304,7 +279,7 @@ flowchart TD
     style P fill:#e8f5e8
 ```
 
-## 10. Apple Server API v2 Integration
+## 9. Apple Server API v2 Integration
 
 ```mermaid
 sequenceDiagram
@@ -323,10 +298,10 @@ sequenceDiagram
     API->>Webhook: Transaction details (JWS)
     
     Webhook->>Webhook: Decode transaction JWS
-    Webhook->>CRM: Update user entitlements
+    Webhook->>CRM: Update user purchases
     
     par Push notification
-        Webhook->>App: Silent push with content unlock
+        Webhook->>App: Silent push with content access
     and WebSocket
         Webhook->>App: WebSocket message
     and Response to Apple
@@ -346,7 +321,7 @@ sequenceDiagram
 2. **Server-to-Server Notifications v2**
    - Webhook endpoint for real-time notifications
    - JWS signature verification
-   - Handle notification types: PURCHASE, RENEWAL, CANCEL, etc.
+   - Handle notification types: PURCHASE, CANCEL, REFUND, etc.
 
 3. **Real-time App Communication**
    - Push Notifications (silent + content)
