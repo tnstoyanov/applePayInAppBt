@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the API contracts and specifications for the modern Apple In-App Purchase system using Apple's Server API v2 with real-time server notifications and CRM integration.
+This document defines the API contracts and specifications for the modern Apple In-App Purchase system using App      "reason": "CONTENT_NOT_PURCHASED",e's Server API v2 with real-time server notifications and CRM integration.
 
 ## 1. Apple Server Notifications v2 Webhook
 
@@ -29,8 +29,8 @@ Content-Type: application/json
 
 ```json
 {
-  "notificationType": "PURCHASE|RENEWAL|CANCEL|REFUND",
-  "subtype": "INITIAL_BUY|RESUBSCRIBE|AUTO_RENEW",
+  "notificationType": "PURCHASE|CANCEL|REFUND",
+  "subtype": "INITIAL_BUY",
   "notificationUUID": "string",
   "data": {
     "appAppleId": 123456789,
@@ -80,9 +80,8 @@ Internal API to fetch and verify transaction details from Apple Server API v2.
     "original_transaction_id": "string",
     "product_id": "string",
     "purchase_date": "ISO-8601-timestamp",
-    "expires_date": "ISO-8601-timestamp",
     "quantity": 1,
-    "type": "Auto-Renewable Subscription|Non-Consumable|Consumable"
+    "type": "Non-Consumable|Consumable"
   },
   "entitlements_updated": true,
   "content_unlocked": [
@@ -109,10 +108,9 @@ Provides real-time entitlement status for immediate content unlocking.
   "entitlements": [
     {
       "product_id": "string",
-      "status": "active|expired|cancelled",
+      "status": "active|cancelled",
       "transaction_id": "string",
       "purchase_date": "ISO-8601-timestamp",
-      "expires_date": "ISO-8601-timestamp",
       "content_access": [
         {
           "content_id": "string",
@@ -167,7 +165,7 @@ X-App-Version: {version}
 ```json
 {
   "has_access": false,
-  "reason": "NO_VALID_SUBSCRIPTION|CONTENT_NOT_PURCHASED|SUBSCRIPTION_EXPIRED",
+  "reason": "CONTENT_NOT_PURCHASED",
   "purchase_options": [
     {
       "product_id": "string",
@@ -182,7 +180,7 @@ X-App-Version: {version}
 
 ### Endpoint: `GET /api/v1/users/{user_id}/entitlements`
 
-Retrieves current user entitlements and subscription status.
+Retrieves current user entitlements and purchase status.
 
 #### User Entitlements Response
 
@@ -192,10 +190,8 @@ Retrieves current user entitlements and subscription status.
   "entitlements": [
     {
       "product_id": "string",
-      "status": "active|expired|cancelled",
+      "status": "active|cancelled",
       "purchase_date": "ISO-8601-timestamp",
-      "expires_date": "ISO-8601-timestamp",
-      "auto_renew": true,
       "content_access": [
         {
           "content_id": "string",
@@ -339,8 +335,7 @@ Retrieves available products and their metadata.
       "description": "string",
       "price": 9.99,
       "currency": "USD",
-      "product_type": "consumable|non_consumable|subscription",
-      "subscription_period": "P1M|P1Y",
+      "product_type": "consumable|non_consumable",
       "content_included": [
         {
           "content_id": "string",
@@ -518,7 +513,6 @@ async function handleAppleNotification(signedPayload) {
 
 1. **Apple Notification Processing**
    - Valid PURCHASE notifications
-   - RENEWAL processing
    - CANCEL/REFUND handling
 
 2. **Real-time Communication**
@@ -542,8 +536,8 @@ async function handleAppleNotification(signedPayload) {
   "test_users": [
     {
       "user_id": "test_user_1",
-      "has_active_subscription": true,
-      "subscription_expires": "2024-12-31T23:59:59Z"
+      "has_purchased_content": true,
+      "purchase_date": "2024-12-31T23:59:59Z"
     }
   ]
 }
