@@ -2,13 +2,13 @@
 
 ## Overview
 
-This document defines the API contracts and specifications for the modern Apple In-App Purchase system using App      "reason": "CONTENT_NOT_PURCHASED",e's Server API v2 with real-time server notifications and CRM integration.
+This document defines the API contracts and specifications for the modern Apple In-App Purchase system using Apple's Server API v2 with server notifications and CRM integration for one-time purchases.
 
 ## 1. Apple Server Notifications v2 Webhook
 
 ### Endpoint: `POST /api/v1/webhooks/apple-notifications`
 
-Handles Apple's Server-to-Server Notifications v2 for real-time purchase updates.
+Handles Apple's Server-to-Server Notifications v2 for purchase updates.
 
 #### Request Headers (from Apple)
 
@@ -69,7 +69,7 @@ Internal API to fetch and verify transaction details from Apple Server API v2.
 }
 ```
 
-#### Notification Processing Response
+#### Transaction Processing Response
 
 ```json
 {
@@ -83,7 +83,6 @@ Internal API to fetch and verify transaction details from Apple Server API v2.
     "quantity": 1,
     "type": "Non-Consumable|Consumable"
   },
-  "entitlements_updated": true,
   "content_unlocked": [
     {
       "content_id": "string",
@@ -93,43 +92,7 @@ Internal API to fetch and verify transaction details from Apple Server API v2.
 }
 ```
 
-## 3. Real-time Content Unlock API
-
-### Endpoint: `GET /api/v1/users/{user_id}/entitlements/live`
-
-Provides real-time entitlement status for immediate content unlocking.
-
-#### Live Entitlements Response
-
-```json
-{
-  "user_id": "string",
-  "last_updated": "ISO-8601-timestamp",
-  "entitlements": [
-    {
-      "product_id": "string",
-      "status": "active|cancelled",
-      "transaction_id": "string",
-      "purchase_date": "ISO-8601-timestamp",
-      "content_access": [
-        {
-          "content_id": "string",
-          "access_level": "full|preview|none",
-          "unlock_timestamp": "ISO-8601-timestamp"
-        }
-      ]
-    }
-  ],
-  "pending_unlocks": [
-    {
-      "content_id": "string",
-      "expected_unlock": "ISO-8601-timestamp"
-    }
-  ]
-}
-```
-
-## 4. Content Access API
+## 3. Content Access API
 
 ### Endpoint: `GET /api/v1/content/{content_id}/access`
 
@@ -176,111 +139,53 @@ X-App-Version: {version}
 }
 ```
 
-## 5. User Entitlements API
+## 4. User Purchases API
 
-### Endpoint: `GET /api/v1/users/{user_id}/entitlements`
+### Endpoint: `GET /api/v1/users/{user_id}/purchases`
 
-Retrieves current user entitlements and purchase status.
+Retrieves current user purchases and owned content.
 
-#### User Entitlements Response
+#### User Purchases Response
 
 ```json
 {
   "user_id": "string",
-  "entitlements": [
+  "purchases": [
     {
       "product_id": "string",
-      "status": "active|cancelled",
+      "transaction_id": "string", 
       "purchase_date": "ISO-8601-timestamp",
-      "content_access": [
-        {
-          "content_id": "string",
-          "access_level": "full|preview|none"
-        }
-      ]
+      "content_ids": ["course_123", "video_456"]
     }
   ],
   "last_updated": "ISO-8601-timestamp"
 }
 ```
 
-## 6. Real-time App Notification APIs
+## 5. Purchase Notification APIs
 
 ### Push Notification Payload
 
-#### Silent Push for Content Unlock
+#### Purchase Complete Notification
 
 ```json
 {
   "aps": {
-    "content-available": 1,
-    "sound": ""
+    "alert": {
+      "title": "Purchase Complete!",
+      "body": "Your content is now available"
+    },
+    "sound": "default"
   },
-  "custom": {
-    "type": "content_unlock",
+  "purchase_data": {
+    "product_id": "course_123",
     "content_ids": ["course_123", "video_456"],
-    "user_id": "user_789",
     "transaction_id": "txn_abc123"
   }
 }
 ```
 
-### WebSocket/Server-Sent Events
-
-#### Endpoint: `GET /api/v1/users/{user_id}/stream`
-
-Real-time stream for content unlock notifications.
-
-#### Message Format
-
-```json
-{
-  "event": "content_unlock",
-  "data": {
-    "user_id": "string",
-    "content_unlocked": [
-      {
-        "content_id": "string",
-        "product_id": "string",
-        "unlocked_at": "ISO-8601-timestamp"
-      }
-    ],
-    "transaction_id": "string"
-  },
-  "timestamp": "ISO-8601-timestamp"
-}
-```
-
-### Polling API for Fallback
-
-#### Endpoint: `GET /api/v1/users/{user_id}/entitlements/changes`
-
-Efficient polling endpoint for apps to check for entitlement changes.
-
-#### Query Parameters
-
-```http
-since: ISO-8601-timestamp (last check)
-```
-
-#### Entitlement Changes Response
-
-```json
-{
-  "has_changes": true,
-  "last_updated": "ISO-8601-timestamp",
-  "changes": [
-    {
-      "type": "unlock",
-      "content_id": "string",
-      "product_id": "string",
-      "changed_at": "ISO-8601-timestamp"
-    }
-  ]
-}
-```
-
-## 7. CRM Integration API
+## 6. CRM Integration API
 
 ### Endpoint: `POST /api/v1/crm/purchase`
 
@@ -307,12 +212,11 @@ Updates CRM system with purchase information.
 {
   "status": "success",
   "crm_customer_id": "string",
-  "entitlements_updated": true,
   "sync_timestamp": "ISO-8601-timestamp"
 }
 ```
 
-## 8. Product Catalog API
+## 7. Product Catalog API
 
 ### Endpoint: `GET /api/v1/products`
 
@@ -386,41 +290,30 @@ Retrieves available products and their metadata.
 ### React Native Implementation
 
 ```javascript
-// Real-time notification listener for React Native
+// Purchase notification handler for React Native
 import { useEffect } from 'react';
-import PushNotification from '@react-native-async-storage/async-storage';
 import messaging from '@react-native-firebase/messaging';
 
-const NotificationManager = () => {
+const PurchaseNotificationManager = () => {
   useEffect(() => {
-    // Handle background/quit state notifications
-    messaging().setBackgroundMessageHandler(async remoteMessage => {
-      if (remoteMessage.data?.type === 'content_unlock') {
-        await handleContentUnlock(remoteMessage.data);
-      }
-    });
-
-    // Handle foreground notifications
+    // Handle purchase complete notifications
     const unsubscribe = messaging().onMessage(async remoteMessage => {
-      if (remoteMessage.data?.type === 'content_unlock') {
-        await handleContentUnlock(remoteMessage.data);
+      if (remoteMessage.purchase_data) {
+        await handlePurchaseComplete(remoteMessage.purchase_data);
       }
     });
 
     return unsubscribe;
   }, []);
 
-  const handleContentUnlock = async (data) => {
-    const { content_ids, user_id, transaction_id } = data;
+  const handlePurchaseComplete = async (purchaseData) => {
+    const { product_id, content_ids, transaction_id } = purchaseData;
     
-    // Update local state to unlock content
-    await unlockContent(content_ids);
+    // Update local state - content is now owned
+    await markContentOwned(content_ids);
     
-    // Optionally show user notification
-    PushNotification.localNotification({
-      title: 'Content Unlocked!',
-      message: 'Your premium content is now available',
-    });
+    // Refresh UI to show owned content
+    console.log(`Purchase complete: ${product_id}, Content unlocked: ${content_ids}`);
   };
 };
 
@@ -459,11 +352,11 @@ class IAPManager {
 
   async handlePurchaseUpdate(purchase) {
     try {
-      // Simply finish the transaction - no receipt validation needed
+      // Finish the transaction - Apple handles validation
       await finishTransaction(purchase);
       
-      // Content will be unlocked via server notification
-      console.log('Purchase completed, waiting for server notification...');
+      // Content access will be available immediately after processing
+      console.log('Purchase completed:', purchase.productId);
       
     } catch (error) {
       console.error('Error finishing transaction:', error);
@@ -492,16 +385,19 @@ class IAPManager {
 ### Backend Service Example (Node.js)
 
 ```javascript
-// Apple Server Notification handler
+// Apple Server Notification handler for one-time purchases
 async function handleAppleNotification(signedPayload) {
     // Verify JWS signature
     const notification = verifyJWS(signedPayload);
     
-    // Process notification
+    // Extract transaction info
     const transactionInfo = verifyJWS(notification.data.signedTransactionInfo);
     
-    // Update CRM and send real-time notifications
-    await processTransaction(transactionInfo);
+    // Update user's purchased content
+    await updateUserPurchases(transactionInfo);
+    
+    // Send simple purchase confirmation
+    await sendPurchaseConfirmation(transactionInfo.userId, transactionInfo.productId);
     
     return { status: 'processed' };
 }
@@ -515,10 +411,10 @@ async function handleAppleNotification(signedPayload) {
    - Valid PURCHASE notifications
    - CANCEL/REFUND handling
 
-2. **Real-time Communication**
-   - Push notification delivery
-   - WebSocket message broadcasting
-   - Polling fallback mechanisms
+2. **Purchase Flow**
+   - Successful purchase completion
+   - Content access after purchase
+   - Purchase restoration
 
 3. **Edge Cases**
    - Invalid JWS signatures
@@ -536,7 +432,7 @@ async function handleAppleNotification(signedPayload) {
   "test_users": [
     {
       "user_id": "test_user_1",
-      "has_purchased_content": true,
+      "owned_products": ["course_123"],
       "purchase_date": "2024-12-31T23:59:59Z"
     }
   ]
