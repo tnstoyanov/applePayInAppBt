@@ -388,23 +388,109 @@ Retrieves available products and their metadata.
 
 ## Implementation Examples
 
-### iOS Swift Implementation
+### React Native Implementation
 
-```swift
-// Real-time notification listener
-class NotificationManager {
-    func handleSilentPush(_ userInfo: [AnyHashable: Any]) {
-        guard let custom = userInfo["custom"] as? [String: Any],
-              let type = custom["type"] as? String,
-              type == "content_unlock",
-              let contentIds = custom["content_ids"] as? [String] else {
-            return
-        }
-        
-        Task {
-            await unlockContent(contentIds)
-        }
+```javascript
+// Real-time notification listener for React Native
+import { useEffect } from 'react';
+import PushNotification from '@react-native-async-storage/async-storage';
+import messaging from '@react-native-firebase/messaging';
+
+const NotificationManager = () => {
+  useEffect(() => {
+    // Handle background/quit state notifications
+    messaging().setBackgroundMessageHandler(async remoteMessage => {
+      if (remoteMessage.data?.type === 'content_unlock') {
+        await handleContentUnlock(remoteMessage.data);
+      }
+    });
+
+    // Handle foreground notifications
+    const unsubscribe = messaging().onMessage(async remoteMessage => {
+      if (remoteMessage.data?.type === 'content_unlock') {
+        await handleContentUnlock(remoteMessage.data);
+      }
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const handleContentUnlock = async (data) => {
+    const { content_ids, user_id, transaction_id } = data;
+    
+    // Update local state to unlock content
+    await unlockContent(content_ids);
+    
+    // Optionally show user notification
+    PushNotification.localNotification({
+      title: 'Content Unlocked!',
+      message: 'Your premium content is now available',
+    });
+  };
+};
+
+// In-App Purchase handling with react-native-iap
+import { 
+  initConnection, 
+  purchaseUpdatedListener,
+  purchaseErrorListener,
+  finishTransaction,
+  getProducts,
+  requestPurchase
+} from 'react-native-iap';
+
+class IAPManager {
+  constructor() {
+    this.purchaseUpdateSubscription = null;
+    this.purchaseErrorSubscription = null;
+  }
+
+  async initialize() {
+    try {
+      await initConnection();
+      
+      // Set up purchase listeners
+      this.purchaseUpdateSubscription = purchaseUpdatedListener(
+        (purchase) => this.handlePurchaseUpdate(purchase)
+      );
+      
+      this.purchaseErrorSubscription = purchaseErrorListener(
+        (error) => this.handlePurchaseError(error)
+      );
+    } catch (error) {
+      console.error('IAP initialization failed:', error);
     }
+  }
+
+  async handlePurchaseUpdate(purchase) {
+    try {
+      // Simply finish the transaction - no receipt validation needed
+      await finishTransaction(purchase);
+      
+      // Content will be unlocked via server notification
+      console.log('Purchase completed, waiting for server notification...');
+      
+    } catch (error) {
+      console.error('Error finishing transaction:', error);
+    }
+  }
+
+  async makePurchase(productId) {
+    try {
+      await requestPurchase(productId);
+    } catch (error) {
+      console.error('Purchase failed:', error);
+    }
+  }
+
+  cleanup() {
+    if (this.purchaseUpdateSubscription) {
+      this.purchaseUpdateSubscription.remove();
+    }
+    if (this.purchaseErrorSubscription) {
+      this.purchaseErrorSubscription.remove();
+    }
+  }
 }
 ```
 
