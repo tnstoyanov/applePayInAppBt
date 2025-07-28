@@ -16,7 +16,6 @@ This document outlines the complete architecture for implementing Apple In-App P
 ### Business Requirements
 
 - CRM-controlled content access
-- Cross-platform subscription management
 - Enterprise and bulk licensing support
 - Unified customer analytics
 - Content versioning and updates
@@ -106,8 +105,8 @@ graph TB
 - **Purpose**: Bridge between Apple purchases and business logic
 - **Capabilities**:
   - User account linking
-  - Subscription status synchronization
-  - Content entitlement management
+  - Purchase history tracking
+  - Content access management
   - Business rule enforcement
 
 #### Content Delivery Service
@@ -121,7 +120,7 @@ graph TB
 
 ## Data Flow
 
-### Purchase to Content Unlock Flow
+### Purchase to Content Access Flow
 
 ```mermaid
 sequenceDiagram
@@ -137,35 +136,12 @@ sequenceDiagram
     AS->>A: Transaction Complete
     AS->>NH: Server Notification v2
     NH->>NH: Verify JWS Signature
-    NH->>CRM: Update User Entitlements
+    NH->>CRM: Update User Purchases
     CRM->>CD: Authorize Content Access
     CD->>A: Real-time Push Notification
-    A->>U: Unlock Premium Content
+    A->>U: Grant Premium Content Access
     
-    Note over A,CD: Content unlocks within seconds via real-time notifications
-```
-
-### Subscription Management Flow
-
-```mermaid
-sequenceDiagram
-    participant AS as Apple Server
-    participant NH as Notification Handler
-    participant CRM as CRM System
-    participant A as iOS App
-    
-    loop Real-time Subscription Events
-        AS->>NH: Server Notification (RENEWAL/CANCEL/REFUND)
-        NH->>NH: Verify JWS Signature
-        NH->>CRM: Update Subscription Status
-        alt Subscription Active
-            CRM->>A: Push Content Access Update
-        else Subscription Expired/Cancelled
-            CRM->>A: Push Access Revocation
-            A->>A: Remove Cached Content
-        end
-    end
-```
+    Note over A,CD: Content access granted immediately after purchase completion
 
 ## Security Considerations
 
