@@ -142,6 +142,7 @@ sequenceDiagram
     A->>U: Grant Premium Content Access
     
     Note over A,CD: Content access granted immediately after purchase completion
+```
 
 ## Security Considerations
 
