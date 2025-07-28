@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build Documentation",
+			"type": "shell",
+			"command": "echo",
+			"args": [
+				"Documentation project ready - view README.md to get started"
+			],
+			"group": "build",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}
