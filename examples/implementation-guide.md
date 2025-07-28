@@ -4,287 +4,717 @@
 
 This document provides practical implementation examples for integrating Apple In-App Purchases using the modern Apple Server API v2 with real-time server notifications, eliminating the deprecated verifyReceipt API.
 
-## iOS Application Implementation
+## React Native Application Implementation
 
-### 1. Modern StoreKit Manager (No Receipt Validation)
+### 1. Modern IAP Manager (No Receipt Validation)
 
-```swift
-import StoreKit
-import Foundation
+```javascript
+import { 
+  initConnection, 
+  endConnection,
+  getProducts, 
+  requestPurchase, 
+  purchaseUpdatedListener,
+  purchaseErrorListener,
+  finishTransaction,
+  getPurchaseHistory
+} from 'react-native-iap';
+import messaging from '@react-native-firebase/messaging';
 
-@MainActor
-class ModernStoreKitManager: NSObject, ObservableObject {
-    @Published var products: [SKProduct] = []
-    @Published var purchasedProducts: Set<String> = []
-    @Published var isLoading = false
-    
-    private let productIdentifiers: Set<String>
-    private let notificationManager: PurchaseNotificationManager
-    
-    init(productIdentifiers: Set<String>, notificationManager: PurchaseNotificationManager) {
-        self.productIdentifiers = productIdentifiers
-        self.notificationManager = notificationManager
-        super.init()
-        
-        SKPaymentQueue.default().add(self)
-        loadProducts()
-        setupPurchaseNotifications()
-    }
-    
-    deinit {
-        SKPaymentQueue.default().remove(self)
-    }
-    
-    // MARK: - Product Loading
-    
-    func loadProducts() {
-        isLoading = true
-        let request = SKProductsRequest(productIdentifiers: productIdentifiers)
-        request.delegate = self
-        request.start()
-    }
-    
-    // MARK: - Purchase Flow (Simplified - No Receipt Handling)
-    
-    func purchase(_ product: SKProduct) {
-        guard SKPaymentQueue.canMakePayments() else {
-            print("Payments not allowed")
-            return
-        }
-        
-        let payment = SKPayment(product: product)
-        SKPaymentQueue.default().add(payment)
-    }
-    
-    // MARK: - Real-time Notification Setup
-    
-    private func setupPurchaseNotifications() {
-        // Setup push notifications for instant content unlock
-        notificationManager.onContentUnlock = { [weak self] contentIds in
-            await self?.handleContentUnlock(contentIds)
-        }
-        
-        // Setup WebSocket for real-time updates
-        notificationManager.connectWebSocket(userId: UserManager.shared.currentUserId)
-        
-        // Setup polling fallback
-        notificationManager.startPolling()
-    }
-    
-    private func handleContentUnlock(_ contentIds: [String]) async {
-        // Refresh entitlements immediately
-        await refreshEntitlements()
-        
-        // Update UI
-        await MainActor.run {
-            // Show success message, unlock UI elements, etc.
-            showContentUnlockedAlert(contentIds)
-        }
-    }
-    
-    private func refreshEntitlements() async {
-        do {
-            let entitlements = try await EntitlementService.shared.getCurrentEntitlements()
-            let productIds = entitlements.compactMap { $0.productId }
-            await MainActor.run {
-                self.purchasedProducts = Set(productIds)
-            }
-        } catch {
-            print("Failed to refresh entitlements: \(error)")
-        }
-    }
-    
-    private func showContentUnlockedAlert(_ contentIds: [String]) {
-        // Show user-friendly notification about unlocked content
-        let message = "🎉 Your premium content is now available!"
-        // Show alert or banner
-    }
-}
+class ModernIAPManager {
+  constructor() {
+    this.products = [];
+    this.purchasedProducts = new Set();
+    this.isLoading = false;
+    this.purchaseUpdateSubscription = null;
+    this.purchaseErrorSubscription = null;
+    this.notificationManager = new PurchaseNotificationManager();
+  }
 
-// MARK: - SKPaymentTransactionObserver (Simplified)
+  async initialize(productIds) {
+    try {
+      this.isLoading = true;
+      
+      // Initialize IAP connection
+      await initConnection();
+      
+      // Set up purchase listeners  
+      this.purchaseUpdateSubscription = purchaseUpdatedListener(
+        (purchase) => this.handlePurchaseUpdate(purchase)
+      );
+      
+      this.purchaseErrorSubscription = purchaseErrorListener(
+        (error) => this.handlePurchaseError(error)
+      );
+      
+      // Load products
+      await this.loadProducts(productIds);
+      
+      // Initialize notification manager for real-time content unlocking
+      await this.notificationManager.initialize();
+      
+    } catch (error) {
+      console.error('IAP initialization failed:', error);
+    } finally {
+      this.isLoading = false;
+    }
+  }
 
-extension ModernStoreKitManager: SKPaymentTransactionObserver {
-    nonisolated func paymentQueue(_ queue: SKPaymentQueue, updatedTransactions transactions: [SKPaymentTransaction]) {
-        for transaction in transactions {
-            switch transaction.transactionState {
-            case .purchased, .restored:
-                // No receipt validation needed - Apple handles everything
-                queue.finishTransaction(transaction)
-                
-                // Optional: Track transaction for analytics
-                Task {
-                    await self.trackPurchaseCompletion(
-                        productId: transaction.payment.productIdentifier,
-                        transactionId: transaction.transactionIdentifier
-                    )
-                }
-                
-            case .failed:
-                if let error = transaction.error as? SKError {
-                    print("Transaction failed: \(error.localizedDescription)")
-                }
-                queue.finishTransaction(transaction)
-                
-            case .deferred:
-                print("Transaction deferred")
-            case .purchasing:
-                print("Transaction purchasing")
-            @unknown default:
-                break
-            }
-        }
+  async loadProducts(productIds) {
+    try {
+      const products = await getProducts(productIds);
+      this.products = products;
+      console.log('Products loaded:', products.length);
+    } catch (error) {
+      console.error('Failed to load products:', error);
     }
-    
-    private func trackPurchaseCompletion(productId: String, transactionId: String?) async {
-        // Optional analytics tracking
-        AnalyticsService.shared.trackPurchase(
-            productId: productId,
-            transactionId: transactionId
-        )
+  }
+
+  // MARK: - Purchase Flow (Simplified - No Receipt Handling)
+  
+  async makePurchase(productId) {
+    try {
+      console.log('Initiating purchase for:', productId);
+      await requestPurchase(productId);
+      // Note: Purchase completion handled by purchaseUpdatedListener
+    } catch (error) {
+      console.error('Purchase failed:', error);
+      throw error;
     }
+  }
+
+  async handlePurchaseUpdate(purchase) {
+    try {
+      console.log('Purchase update received:', purchase.productId);
+      
+      // Simply finish the transaction - Apple handles everything else
+      await finishTransaction(purchase);
+      
+      // Content will be unlocked via real-time server notification
+      console.log('Transaction finished. Waiting for server notification...');
+      
+      // Update local state (will be confirmed by server notification)
+      this.purchasedProducts.add(purchase.productId);
+      
+    } catch (error) {
+      console.error('Error handling purchase update:', error);
+    }
+  }
+
+  handlePurchaseError(error) {
+    console.error('Purchase error:', error);
+    // Handle different error types
+    switch (error.code) {
+      case 'E_USER_CANCELLED':
+        console.log('User cancelled purchase');
+        break;
+      case 'E_PAYMENT_INVALID':
+        console.log('Payment method invalid');
+        break;
+      default:
+        console.log('Unknown purchase error:', error.message);
+    }
+  }
+
+  async restorePurchases() {
+    try {
+      const purchases = await getPurchaseHistory();
+      console.log('Restored purchases:', purchases.length);
+      
+      // Update local state
+      purchases.forEach(purchase => {
+        this.purchasedProducts.add(purchase.productId);
+      });
+      
+      return purchases;
+    } catch (error) {
+      console.error('Failed to restore purchases:', error);
+    }
+  }
+
+  cleanup() {
+    if (this.purchaseUpdateSubscription) {
+      this.purchaseUpdateSubscription.remove();
+    }
+    if (this.purchaseErrorSubscription) {
+      this.purchaseErrorSubscription.remove();
+    }
+    endConnection();
+  }
 }
 ```
 
 ### 2. Real-time Notification Manager
 
-```swift
-import Foundation
-import Combine
+```javascript
+import messaging from '@react-native-firebase/messaging';
+import PushNotificationIOS from '@react-native-community/push-notification-ios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-class PurchaseNotificationManager: ObservableObject {
-    var onContentUnlock: (([String]) async -> Void)?
+class PurchaseNotificationManager {
+  constructor() {
+    this.contentUnlockCallbacks = [];
+  }
+
+  async initialize() {
+    // Request notification permissions
+    await this.requestPermissions();
     
-    private var webSocketTask: URLSessionWebSocketTask?
-    private var pollingTimer: Timer?
-    private var lastPollingCheck: Date = Date()
+    // Set up message handlers
+    this.setupMessageHandlers();
     
-    // MARK: - Push Notifications
+    // Handle app launched from notification
+    const initialNotification = await messaging().getInitialNotification();
+    if (initialNotification) {
+      await this.handleNotificationData(initialNotification.data);
+    }
+  }
+
+  async requestPermissions() {
+    const authStatus = await messaging().requestPermission();
+    const enabled =
+      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+
+    if (enabled) {
+      console.log('Notification authorization status:', authStatus);
+      
+      // Get FCM token for server registration
+      const token = await messaging().getToken();
+      await this.registerDeviceToken(token);
+    }
+  }
+
+  setupMessageHandlers() {
+    // Handle background/quit state notifications
+    messaging().setBackgroundMessageHandler(async remoteMessage => {
+      console.log('Background notification received:', remoteMessage);
+      if (remoteMessage.data?.type === 'content_unlock') {
+        await this.handleContentUnlock(remoteMessage.data);
+      }
+    });
+
+    // Handle foreground notifications
+    messaging().onMessage(async remoteMessage => {
+      console.log('Foreground notification received:', remoteMessage);
+      if (remoteMessage.data?.type === 'content_unlock') {
+        await this.handleContentUnlock(remoteMessage.data);
+      }
+    });
+
+    // Handle notification opened (app in background)
+    messaging().onNotificationOpenedApp(remoteMessage => {
+      console.log('Notification opened app:', remoteMessage);
+      if (remoteMessage.data?.type === 'content_unlock') {
+        this.handleContentUnlock(remoteMessage.data);
+      }
+    });
+  }
+
+  async handleContentUnlock(data) {
+    try {
+      const { content_ids, user_id, transaction_id, product_id } = data;
+      
+      console.log('Content unlock notification:', {
+        contentIds: content_ids,
+        userId: user_id,
+        transactionId: transaction_id
+      });
+
+      // Update local entitlements cache
+      await this.updateLocalEntitlements(content_ids, product_id);
+      
+      // Notify app components about content unlock
+      this.contentUnlockCallbacks.forEach(callback => {
+        callback({
+          contentIds: content_ids,
+          productId: product_id,
+          transactionId: transaction_id
+        });
+      });
+
+      // Show local notification if app is in background
+      if (AppState.currentState !== 'active') {
+        PushNotificationIOS.presentLocalNotification({
+          alertTitle: 'Content Unlocked!',
+          alertBody: 'Your premium content is now available',
+          userInfo: { contentIds: content_ids }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error handling content unlock:', error);
+    }
+  }
+
+  async updateLocalEntitlements(contentIds, productId) {
+    try {
+      const entitlements = await AsyncStorage.getItem('user_entitlements');
+      const currentEntitlements = entitlements ? JSON.parse(entitlements) : {};
+      
+      // Add new entitlements
+      contentIds.forEach(contentId => {
+        currentEntitlements[contentId] = {
+          productId,
+          unlockedAt: new Date().toISOString(),
+          status: 'active'
+        };
+      });
+
+      await AsyncStorage.setItem('user_entitlements', JSON.stringify(currentEntitlements));
+      console.log('Local entitlements updated');
+      
+    } catch (error) {
+      console.error('Failed to update local entitlements:', error);
+    }
+  }
+
+  onContentUnlock(callback) {
+    this.contentUnlockCallbacks.push(callback);
     
-    func handleSilentPushNotification(_ userInfo: [AnyHashable: Any]) {
-        guard let customData = userInfo["custom"] as? [String: Any],
-              let type = customData["type"] as? String,
-              type == "content_unlock",
-              let contentIds = customData["content_ids"] as? [String] else {
-            return
+    // Return unsubscribe function
+    return () => {
+      const index = this.contentUnlockCallbacks.indexOf(callback);
+      if (index > -1) {
+        this.contentUnlockCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  async registerDeviceToken(token) {
+    try {
+      // Send token to your backend for push notification targeting
+      await fetch('/api/v1/users/device-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await getAuthToken()}`
+        },
+        body: JSON.stringify({
+          device_token: token,
+          platform: 'ios'
+        })
+      });
+      
+      console.log('Device token registered with server');
+    } catch (error) {
+      console.error('Failed to register device token:', error);
+    }
+  }
+}
+```
+
+### 3. Content Manager for React Native
+
+```javascript
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import RNFS from 'react-native-fs';
+
+class ContentManager {
+  constructor() {
+    this.availableContent = [];
+    this.downloadedContent = [];
+    this.isLoading = false;
+    this.baseURL = 'https://your-api.com';
+  }
+
+  async loadAvailableContent() {
+    try {
+      this.isLoading = true;
+      
+      const response = await fetch(`${this.baseURL}/api/v1/content`, {
+        headers: {
+          'Authorization': `Bearer ${await getAuthToken()}`
         }
+      });
+      
+      if (response.ok) {
+        this.availableContent = await response.json();
+        await this.loadDownloadedContent();
+      }
+      
+    } catch (error) {
+      console.error('Failed to load content:', error);
+    } finally {
+      this.isLoading = false;
+    }
+  }
+
+  async loadDownloadedContent() {
+    try {
+      const downloaded = await AsyncStorage.getItem('downloaded_content');
+      this.downloadedContent = downloaded ? JSON.parse(downloaded) : [];
+    } catch (error) {
+      console.error('Failed to load downloaded content list:', error);
+    }
+  }
+
+  async downloadContent(contentId) {
+    try {
+      // Check if user has access
+      if (!await this.hasAccess(contentId)) {
+        throw new Error('Access denied - no valid purchase');
+      }
+
+      // Get secure access URL
+      const accessResponse = await this.getContentAccess(contentId);
+      if (!accessResponse.has_access) {
+        throw new Error('Access denied by server');
+      }
+
+      // Download content
+      const downloadDest = `${RNFS.DocumentDirectoryPath}/${contentId}`;
+      const download = RNFS.downloadFile({
+        fromUrl: accessResponse.access_url,
+        toFile: downloadDest,
+        progressCallback: (res) => {
+          const progress = (res.bytesWritten / res.contentLength) * 100;
+          console.log(`Download progress: ${progress}%`);
+        }
+      });
+
+      const result = await download.promise;
+      
+      if (result.statusCode === 200) {
+        // Update downloaded content list
+        const updatedList = [...this.downloadedContent, {
+          contentId,
+          localPath: downloadDest,
+          downloadedAt: new Date().toISOString()
+        }];
         
-        Task {
-            await onContentUnlock?(contentIds)
-        }
-    }
-    
-    // MARK: - WebSocket Connection
-    
-    func connectWebSocket(userId: String) {
-        let url = URL(string: "wss://yourapi.com/api/v1/users/\(userId)/stream")!
-        webSocketTask = URLSession.shared.webSocketTask(with: url)
-        webSocketTask?.resume()
+        this.downloadedContent = updatedList;
+        await AsyncStorage.setItem('downloaded_content', JSON.stringify(updatedList));
         
-        listenForWebSocketMessages()
+        console.log('Content downloaded successfully:', contentId);
+      }
+
+    } catch (error) {
+      console.error('Content download failed:', error);
+      throw error;
     }
-    
-    private func listenForWebSocketMessages() {
-        webSocketTask?.receive { [weak self] result in
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self?.handleWebSocketMessage(text)
-                case .data(let data):
-                    if let text = String(data: data, encoding: .utf8) {
-                        self?.handleWebSocketMessage(text)
-                    }
-                @unknown default:
-                    break
-                }
-                
-                // Continue listening
-                self?.listenForWebSocketMessages()
-                
-            case .failure(let error):
-                print("WebSocket error: \(error)")
-                // Reconnect after delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                    self?.connectWebSocket(userId: UserManager.shared.currentUserId)
-                }
-            }
-        }
+  }
+
+  async getContentAccess(contentId) {
+    const response = await fetch(`${this.baseURL}/api/v1/content/${contentId}/access`, {
+      headers: {
+        'Authorization': `Bearer ${await getAuthToken()}`,
+        'X-Device-ID': await getDeviceId(),
+        'X-App-Version': getAppVersion()
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Access check failed: ${response.status}`);
     }
-    
-    private func handleWebSocketMessage(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let message = try? JSONDecoder().decode(WebSocketMessage.self, from: data),
-              message.event == "content_unlock" else {
-            return
-        }
-        
-        let contentIds = message.data.contentUnlocked.map { $0.contentId }
-        Task {
-            await onContentUnlock?(contentIds)
-        }
+
+    return await response.json();
+  }
+
+  async hasAccess(contentId) {
+    try {
+      const entitlements = await AsyncStorage.getItem('user_entitlements');
+      const userEntitlements = entitlements ? JSON.parse(entitlements) : {};
+      
+      return userEntitlements[contentId]?.status === 'active';
+    } catch (error) {
+      console.error('Failed to check local access:', error);
+      return false;
     }
-    
-    // MARK: - Polling Fallback
-    
-    func startPolling() {
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
-            Task {
-                await self?.checkForChanges()
-            }
-        }
-    }
-    
-    private func checkForChanges() async {
-        do {
-            let changes = try await EntitlementService.shared.getEntitlementChanges(since: lastPollingCheck)
-            
-            if changes.hasChanges {
-                let unlockedContentIds = changes.changes
-                    .filter { $0.type == "unlock" }
-                    .map { $0.contentId }
-                
-                if !unlockedContentIds.isEmpty {
-                    await onContentUnlock?(unlockedContentIds)
-                }
-            }
-            
-            lastPollingCheck = Date()
-        } catch {
-            print("Polling check failed: \(error)")
-        }
-    }
+  }
+
+  getLocalContentPath(contentId) {
+    const downloadedItem = this.downloadedContent.find(item => item.contentId === contentId);
+    return downloadedItem?.localPath;
+  }
 }
 
-// MARK: - Models
-
-struct WebSocketMessage: Codable {
-    let event: String
-    let data: WebSocketData
-    let timestamp: String
+// Helper functions
+async function getAuthToken() {
+  return await AsyncStorage.getItem('auth_token');
 }
 
-struct WebSocketData: Codable {
-    let userId: String
-    let contentUnlocked: [UnlockedContent]
-    let transactionId: String
-    
-    enum CodingKeys: String, CodingKey {
-        case userId = "user_id"
-        case contentUnlocked = "content_unlocked"
-        case transactionId = "transaction_id"
-    }
+async function getDeviceId() {
+  return await AsyncStorage.getItem('device_id');
 }
 
-struct UnlockedContent: Codable {
-    let contentId: String
-    let productId: String
-    let unlockedAt: String
+function getAppVersion() {
+  return require('../package.json').version;
+}
+```
+
+### 4. React Native Component Usage
+
+```javascript
+import React, { useEffect, useState } from 'react';
+import { View, Text, Button, Alert } from 'react-native';
+
+const PremiumContentScreen = () => {
+  const [iapManager] = useState(() => new ModernIAPManager());
+  const [contentManager] = useState(() => new ContentManager());
+  const [products, setProducts] = useState([]);
+  const [hasAccess, setHasAccess] = useState(false);
+
+  useEffect(() => {
+    initializeServices();
     
-    enum CodingKeys: String, CodingKey {
-        case contentId = "content_id"
-        case productId = "product_id"
-        case unlockedAt = "unlocked_at"
+    // Listen for content unlocks
+    const unsubscribe = iapManager.notificationManager.onContentUnlock(
+      ({ contentIds, productId }) => {
+        console.log('Content unlocked:', contentIds);
+        setHasAccess(true);
+        Alert.alert('Success!', 'Your premium content is now available');
+      }
+    );
+
+    return () => {
+      unsubscribe();
+      iapManager.cleanup();
+    };
+  }, []);
+
+  const initializeServices = async () => {
+    try {
+      await iapManager.initialize(['com.yourapp.premium_course']);
+      await contentManager.loadAvailableContent();
+      setProducts(iapManager.products);
+    } catch (error) {
+      console.error('Service initialization failed:', error);
     }
+  };
+
+  const handlePurchase = async (productId) => {
+    try {
+      await iapManager.makePurchase(productId);
+      // Content will be unlocked via push notification
+    } catch (error) {
+      Alert.alert('Purchase Failed', error.message);
+    }
+  };
+
+  return (
+    <View style={{ padding: 20 }}>
+      <Text style={{ fontSize: 24, marginBottom: 20 }}>Premium Content</Text>
+      
+      {!hasAccess ? (
+        <View>
+          <Text>Purchase required to access premium content</Text>
+          {products.map(product => (
+            <Button
+              key={product.productId}
+              title={`Buy ${product.localizedPrice}`}
+              onPress={() => handlePurchase(product.productId)}
+            />
+          ))}
+        </View>
+      ) : (
+        <View>
+          <Text>🎉 You have access to premium content!</Text>
+          <Button 
+            title="Download Content"
+            onPress={() => contentManager.downloadContent('premium_course_1')}
+          />
+        </View>
+      )}
+    </View>
+  );
+};
+
+export default PremiumContentScreen;
+## Usage Examples
+
+### 5. Complete Integration Example
+
+```javascript
+// App.js - Main application setup
+import React, { useEffect } from 'react';
+import { Alert } from 'react-native';
+import { ModernIAPManager } from './services/ModernIAPManager';
+import { ContentManager } from './services/ContentManager';
+
+// Global service instances
+export const iapManager = new ModernIAPManager();
+export const contentManager = new ContentManager();
+
+const App = () => {
+  useEffect(() => {
+    initializeApp();
+  }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Initialize IAP with your product IDs
+      await iapManager.initialize([
+        'com.yourapp.premium_course',
+        'com.yourapp.advanced_content'
+      ]);
+
+      // Load available content
+      await contentManager.loadAvailableContent();
+
+      console.log('App initialized successfully');
+    } catch (error) {
+      console.error('App initialization failed:', error);
+      Alert.alert('Initialization Error', 'Failed to initialize app services');
+    }
+  };
+
+  return (
+    <NavigationContainer>
+      {/* Your app navigation */}
+    </NavigationContainer>
+  );
+};
+
+export default App;
+```
+
+### 6. Error Handling and Edge Cases
+
+```javascript
+class ErrorHandler {
+  static handlePurchaseError(error) {
+    console.error('Purchase error:', error);
+    
+    switch (error.code) {
+      case 'E_USER_CANCELLED':
+        return { message: 'Purchase was cancelled', showAlert: false };
+      
+      case 'E_PAYMENT_INVALID':
+        return { 
+          message: 'Payment method is invalid. Please check your payment settings.',
+          showAlert: true 
+        };
+      
+      case 'E_NETWORK_ERROR':
+        return { 
+          message: 'Network error. Please check your connection and try again.',
+          showAlert: true 
+        };
+      
+      case 'E_SERVICE_ERROR':
+        return { 
+          message: 'Service temporarily unavailable. Please try again later.',
+          showAlert: true 
+        };
+      
+      default:
+        return { 
+          message: `Purchase failed: ${error.message}`,
+          showAlert: true 
+        };
+    }
+  }
+
+  static async handleContentAccessError(error, contentId) {
+    console.error('Content access error:', error);
+    
+    if (error.status === 403) {
+      // Access denied - user doesn't own content
+      Alert.alert(
+        'Access Required',
+        'You need to purchase this content to access it.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Purchase', onPress: () => this.redirectToPurchase(contentId) }
+        ]
+      );
+    } else if (error.status === 503) {
+      // Service unavailable
+      Alert.alert(
+        'Service Unavailable',
+        'Content service is temporarily unavailable. Please try again later.'
+      );
+    } else {
+      Alert.alert('Error', 'Failed to access content. Please try again.');
+    }
+  }
+
+  static redirectToPurchase(contentId) {
+    // Navigate to purchase screen for the required content
+    NavigationService.navigate('Purchase', { contentId });
+  }
+}
+```
+
+### 7. Testing and Validation
+
+```javascript
+// TestHelper.js - For development and testing
+class TestHelper {
+  static async validateIAPSetup() {
+    try {
+      console.log('🧪 Starting IAP validation...');
+      
+      // Test 1: IAP Connection
+      const connectionTest = await this.testIAPConnection();
+      console.log('✅ IAP Connection:', connectionTest ? 'PASS' : 'FAIL');
+      
+      // Test 2: Product Loading
+      const productsTest = await this.testProductLoading();
+      console.log('✅ Product Loading:', productsTest ? 'PASS' : 'FAIL');
+      
+      // Test 3: Notification Setup
+      const notificationTest = await this.testNotificationSetup();
+      console.log('✅ Notifications:', notificationTest ? 'PASS' : 'FAIL');
+      
+      // Test 4: Content Access
+      const contentTest = await this.testContentAccess();
+      console.log('✅ Content Access:', contentTest ? 'PASS' : 'FAIL');
+      
+      console.log('🧪 IAP validation complete');
+      
+    } catch (error) {
+      console.error('❌ IAP validation failed:', error);
+    }
+  }
+
+  static async testIAPConnection() {
+    try {
+      await initConnection();
+      return true;
+    } catch (error) {
+      console.error('IAP connection test failed:', error);
+      return false;
+    }
+  }
+
+  static async testProductLoading() {
+    try {
+      const products = await getProducts(['com.yourapp.premium_course']);
+      return products && products.length > 0;
+    } catch (error) {
+      console.error('Product loading test failed:', error);
+      return false;
+    }
+  }
+
+  static async testNotificationSetup() {
+    try {
+      const authStatus = await messaging().hasPermission();
+      return authStatus === messaging.AuthorizationStatus.AUTHORIZED;
+    } catch (error) {
+      console.error('Notification test failed:', error);
+      return false;
+    }
+  }
+
+  static async testContentAccess() {
+    try {
+      const response = await fetch('/api/v1/content/test', {
+        headers: { 'Authorization': `Bearer ${await getAuthToken()}` }
+      });
+      return response.ok;
+    } catch (error) {
+      console.error('Content access test failed:', error);
+      return false;
+    }
+  }
+}
+
+// Use in development
+if (__DEV__) {
+  TestHelper.validateIAPSetup();
 }
 ```
 
